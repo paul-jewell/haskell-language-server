@@ -839,14 +839,14 @@ displayTHWarning
           ]
   | otherwise = return ()
 
-newtype DisplayTHWarning = DisplayTHWarning (IO ())
+newtype DisplayTHWarning = DisplayTHWarning (IORef (IO()))
 instance IsIdeGlobal DisplayTHWarning
 
 getModSummaryRule :: Recorder (WithPriority Log) -> Rules ()
 getModSummaryRule recorder = do
     menv <- lspEnv <$> getShakeExtrasRules
     forM_ menv $ \env -> do
-        displayItOnce <- liftIO $ once $ LSP.runLspT env displayTHWarning
+        displayItOnce <- liftIO $ newIORef $ LSP.runLspT env displayTHWarning
         addIdeGlobal (DisplayTHWarning displayItOnce)
 
     defineEarlyCutoff (cmapWithPrio LogShake recorder) $ Rule $ \GetModSummary f -> do
@@ -861,7 +861,8 @@ getModSummaryRule recorder = do
             Right res -> do
                 -- Check for Template Haskell
                 when (uses_th_qq $ msrModSummary res) $ do
-                    DisplayTHWarning act <- getIdeGlobalAction
+                    DisplayTHWarning actRef <- getIdeGlobalAction
+                    act <- liftIO $ atomicModifyIORef actRef (pure (),)
                     liftIO act
                 bufFingerPrint <- liftIO $
                     fingerprintFromStringBuffer $ fromJust $ ms_hspp_buf $ msrModSummary res
